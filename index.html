@@ -609,35 +609,6 @@
         </div>
       </div>
 
-      <!-- IVA / VAT -->
-      <div class="card">
-        <div class="card-title">IVA / VAT (Europa)</div>
-        <div class="card-desc">Percentual de IVA que será adicionado ao preço final. Portugal: 23%, outros países: 17-25%.</div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>IVA / VAT (%)</label>
-            <div class="slider-group">
-              <input type="range" id="vat_rate" min="0" max="25" step="1" value="23" oninput="saveAndRecalc()">
-              <span class="slider-value" id="vat_rate_display">23%</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAXA DE PLATAFORMA -->
-      <div class="card">
-        <div class="card-title">Taxa de Plataforma</div>
-        <div class="card-desc">Se vende em Etsy, Vinted, Instagram Shop, etc. Etsy: 6-8%, Vinted: 5%, Presencial: 0%.</div>
-        <div class="form-grid">
-          <div class="form-group">
-            <label>Taxa de Plataforma (%)</label>
-            <div class="slider-group">
-              <input type="range" id="platform_fee" min="0" max="20" step="0.5" value="0" oninput="saveAndRecalc()">
-              <span class="slider-value" id="platform_fee_display">0%</span>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <button class="btn btn-success" onclick="document.querySelector('[data-tab=calc]').click()" style="width:100%; margin-top:8px;">
         Calcular Preço de uma Peça →
@@ -719,22 +690,6 @@
           <div class="result-item" style="grid-column: 1 / -1;">
             <div class="label">Preço de Venda Sugerido</div>
             <div class="value total" id="r_final_price">€ 0.00</div>
-          </div>
-          <div class="result-item">
-            <div class="label">+ IVA (s/ imposto)</div>
-            <div class="value warning" id="r_vat">€ 0.00</div>
-          </div>
-          <div class="result-item">
-            <div class="label">Preço com IVA</div>
-            <div class="value total" id="r_price_with_vat">€ 0.00</div>
-          </div>
-          <div class="result-item">
-            <div class="label">- Taxa Plataforma</div>
-            <div class="value warning" id="r_platform_fee">€ 0.00</div>
-          </div>
-          <div class="result-item" style="grid-column: 1 / -1;">
-            <div class="label">Lucro Líquido (depois de taxas)</div>
-            <div class="value total" id="r_net_profit">€ 0.00</div>
           </div>
         </div>
         <div style="text-align:center; margin-top:20px;">
@@ -938,7 +893,7 @@
     'filament_price', 'filament_weight', 'energy_monthly', 'energy_kwh',
     'printer_price', 'printer_hours', 'nozzle_price', 'nozzle_hours',
     'salary_monthly', 'work_hours', 'packaging_cost', 'loss_rate', 'profit_margin',
-    'printer_watts', 'vat_rate', 'platform_fee'
+    'printer_watts'
   ];
 
   function saveData() {
@@ -989,8 +944,6 @@
     const laborRate = getVal('salary_monthly') / getVal('work_hours');
     const lossRate = getVal('loss_rate') / 100;
     const profitMargin = getVal('profit_margin') / 100;
-    const vatRate = getVal('vat_rate') / 100;
-    const platformFee = getVal('platform_fee') / 100;
 
     const weight = getVal('piece_weight');
     const printHours = getVal('piece_print_hours');
@@ -1010,12 +963,6 @@
     const profit = totalCost * profitMargin;
     const finalPrice = totalCost + profit;
 
-    // Cálculos de IVA e taxa de plataforma
-    const vat = finalPrice * vatRate;
-    const priceWithVat = finalPrice + vat;
-    const platformFeeAmount = priceWithVat * platformFee;
-    const netProfit = profit - platformFeeAmount;
-
     document.getElementById('r_filament').textContent = fmt(filamentCost);
     document.getElementById('r_energy').textContent = fmt(energyCost);
     document.getElementById('r_printer').textContent = fmt(printerCost);
@@ -1027,12 +974,8 @@
     document.getElementById('r_total_cost').textContent = fmt(totalCost);
     document.getElementById('r_profit').textContent = fmt(profit);
     document.getElementById('r_final_price').textContent = fmt(finalPrice);
-    document.getElementById('r_vat').textContent = fmt(vat);
-    document.getElementById('r_price_with_vat').textContent = fmt(priceWithVat);
-    document.getElementById('r_platform_fee').textContent = fmt(platformFeeAmount);
-    document.getElementById('r_net_profit').textContent = fmt(netProfit);
 
-    return { filamentCost, energyCost, printerCost, nozzleCost, laborCost, packagingCost, subtotal, losses, totalCost, profit, finalPrice, vat, priceWithVat, platformFeeAmount, netProfit };
+    return { filamentCost, energyCost, printerCost, nozzleCost, laborCost, packagingCost, subtotal, losses, totalCost, profit, finalPrice };
   }
 
   function saveAndRecalc() {
