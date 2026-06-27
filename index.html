@@ -471,6 +471,52 @@
       border-top: 2px solid var(--primary) !important;
       font-size: 13px;
     }
+
+    /* ==================== MODAL EDITAR ==================== */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      width: 100%;
+      max-width: 560px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--primary-hover);
+      margin-bottom: 20px;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+      justify-content: flex-end;
+    }
+    .btn-edit {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-edit:hover { border-color: var(--success); color: var(--success); }
   </style>
 </head>
 <body>
@@ -900,7 +946,64 @@
   </div>
 </div>
 
-<!-- ==================== IMPORT FILE INPUT ==================== -->
+<!-- ==================== MODAL EDITAR ENCOMENDA ==================== -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-title">✏️ Editar Encomenda</div>
+    <input type="hidden" id="edit_id">
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Cliente</label>
+        <input type="text" id="edit_client" placeholder="Nome do cliente">
+      </div>
+      <div class="form-group">
+        <label>Origem</label>
+        <select id="edit_origin">
+          <option value="Vinted">Vinted</option>
+          <option value="Etsy">Etsy</option>
+          <option value="WhatsApp">WhatsApp</option>
+          <option value="Instagram">Instagram</option>
+          <option value="Presencial">Presencial</option>
+          <option value="Outro">Outro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Produto</label>
+        <input type="text" id="edit_product" placeholder="Nome do produto">
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="edit_status">
+          <option value="Pendente">Pendente</option>
+          <option value="Em Produção">Em Produção</option>
+          <option value="Concluído">Concluído</option>
+          <option value="Entregue">Entregue</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Data Encomenda</label>
+        <input type="date" id="edit_date">
+      </div>
+      <div class="form-group">
+        <label>Data Entrega Prevista</label>
+        <input type="date" id="edit_delivery">
+      </div>
+      <div class="form-group">
+        <label>Preço de Venda (€)</label>
+        <input type="number" id="edit_price" step="0.01" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label>Notas</label>
+        <input type="text" id="edit_notes" placeholder="Observações">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" onclick="closeEditModal()">Cancelar</button>
+      <button class="btn btn-success btn-sm" onclick="saveEditOrder()">Guardar Alterações</button>
+    </div>
+  </div>
+</div>
+
 <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
 
 <script>
@@ -1316,8 +1419,6 @@
     }
 
     const totalFaturado = orders.reduce((s, o) => s + (o.price || 0), 0);
-    const totalCusto = orders.reduce((s, o) => s + (o.cost > 0 ? o.cost : (o.price > 0 ? 14 : 0)), 0);
-    const totalLucro = totalFaturado - totalCusto;
 
     container.innerHTML = `
       <div style="overflow-x:auto;">
@@ -1331,17 +1432,12 @@
               <th>Status</th>
               <th>Entrega</th>
               <th>Preço</th>
-              <th>Custo</th>
-              <th>Lucro</th>
               <th>Notas</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
-            ${orders.map(o => {
-              const custo = o.cost > 0 ? o.cost : (o.price > 0 ? 14 : 0);
-              const lucro = o.price - custo;
-              return `
+            ${orders.map(o => `
               <tr>
                 <td>${o.date}</td>
                 <td><strong>${o.client}</strong></td>
@@ -1350,19 +1446,18 @@
                 <td><span class="status-badge ${getStatusClass(o.status)}">${o.status}</span></td>
                 <td>${o.delivery || '-'}</td>
                 <td style="color:var(--success)">${fmt(o.price)}</td>
-                <td style="color:var(--warning)">${o.cost > 0 ? fmt(o.cost) : '<span style="color:var(--text-muted);font-size:11px">~€14</span>'}</td>
-                <td style="color:${lucro >= 0 ? 'var(--primary-hover)' : 'var(--primary)'}">${fmt(lucro)}</td>
                 <td style="font-size:11px; color:var(--text-muted)">${o.notes || '-'}</td>
-                <td><button class="delete-btn" onclick="deleteOrder(${o.id})" title="Apagar">✕</button></td>
-              </tr>`;
-            }).join('')}
+                <td style="display:flex; gap:6px;">
+                  <button class="btn-edit" onclick="openEditModal(${o.id})" title="Editar">✏️</button>
+                  <button class="delete-btn" onclick="deleteOrder(${o.id})" title="Apagar">✕</button>
+                </td>
+              </tr>
+            `).join('')}
           </tbody>
           <tfoot>
             <tr class="history-total-row">
               <td colspan="6"><strong>TOTAL (${orders.length} encomendas)</strong></td>
               <td style="color:var(--success)"><strong>${fmt(totalFaturado)}</strong></td>
-              <td style="color:var(--warning)"><strong>${fmt(totalCusto)}</strong></td>
-              <td style="color:${totalLucro >= 0 ? 'var(--primary-hover)' : 'var(--primary)'}"><strong>${fmt(totalLucro)}</strong></td>
               <td colspan="2"></td>
             </tr>
           </tfoot>
@@ -1370,6 +1465,57 @@
       </div>
     `;
   }
+
+  // ==================== EDITAR ENCOMENDA ====================
+  function openEditModal(id) {
+    const order = getOrders().find(o => o.id === id);
+    if (!order) return;
+
+    document.getElementById('edit_id').value = order.id;
+    document.getElementById('edit_client').value = order.client || '';
+    document.getElementById('edit_origin').value = order.origin || 'WhatsApp';
+    document.getElementById('edit_product').value = order.product || '';
+    document.getElementById('edit_status').value = order.status || 'Pendente';
+    document.getElementById('edit_date').value = order.date || '';
+    document.getElementById('edit_delivery').value = order.delivery || '';
+    document.getElementById('edit_price').value = order.price || '';
+    document.getElementById('edit_notes').value = order.notes || '';
+
+    document.getElementById('edit-modal').classList.add('open');
+  }
+
+  function closeEditModal() {
+    document.getElementById('edit-modal').classList.remove('open');
+  }
+
+  function saveEditOrder() {
+    const id = parseInt(document.getElementById('edit_id').value);
+    const orders = getOrders();
+    const idx = orders.findIndex(o => o.id === id);
+    if (idx === -1) return;
+
+    orders[idx] = {
+      ...orders[idx],
+      client: document.getElementById('edit_client').value.trim(),
+      origin: document.getElementById('edit_origin').value,
+      product: document.getElementById('edit_product').value.trim(),
+      status: document.getElementById('edit_status').value,
+      date: document.getElementById('edit_date').value,
+      delivery: document.getElementById('edit_delivery').value,
+      price: parseFloat(document.getElementById('edit_price').value) || 0,
+      notes: document.getElementById('edit_notes').value.trim(),
+    };
+
+    localStorage.setItem('polylab_orders', JSON.stringify(orders));
+    closeEditModal();
+    renderOrders();
+    updateOrderStats();
+  }
+
+  // Fechar modal ao clicar fora
+  document.getElementById('edit-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditModal();
+  });
 </script>
 
 </body>
