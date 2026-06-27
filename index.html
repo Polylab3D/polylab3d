@@ -1006,10 +1006,24 @@
 
 <input type="file" id="import-file" accept=".json" style="display:none" onchange="handleImport(event)">
 
-<script>
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyA3Yj0bfVuhYV7VZFeWD6ZiGHNWarMKLcE",
+    authDomain: "polylab3d-beedf.firebaseapp.com",
+    projectId: "polylab3d-beedf",
+    storageBucket: "polylab3d-beedf.firebasestorage.app",
+    messagingSenderId: "354452476313",
+    appId: "1:354452476313:web:fdd9bb83fedb4d54fa8308"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
   // ==================== AUTH ====================
-  // SHA-256 hash da senha — altere executando no console:
-  // crypto.subtle.digest('SHA-256', new TextEncoder().encode('SUA_SENHA')).then(h => console.log(Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('')))
   const PASS_HASH = '55063de105a9020d151805e33be779ad816817d8dd950a15220e5ae000eadc97';
 
   async function sha256(str) {
@@ -1029,6 +1043,7 @@
       document.getElementById('login-pass').focus();
     }
   }
+  window.tryLogin = tryLogin;
 
   document.getElementById('login-pass').addEventListener('keydown', e => {
     if (e.key === 'Enter') tryLogin();
@@ -1038,16 +1053,17 @@
     sessionStorage.removeItem('polylab_auth');
     location.reload();
   }
+  window.logout = logout;
 
-  function showApp() {
+  async function showApp() {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
-    loadData();
+    await loadData();
     recalcBase();
     calcPiece();
-    renderHistory();
-    renderOrders();
-    updateOrderStats();
+    await renderHistory();
+    await renderOrders();
+    await updateOrderStats();
   }
 
   if (sessionStorage.getItem('polylab_auth') === '1') showApp();
@@ -1062,7 +1078,7 @@
     });
   });
 
-  // ==================== DATA ====================
+  // ==================== DATA (BASE DE CÁLCULO) ====================
   const BASE_FIELDS = [
     'filament_price', 'filament_weight', 'energy_monthly', 'energy_kwh',
     'printer_price', 'printer_hours', 'nozzle_price', 'nozzle_hours',
@@ -1070,19 +1086,20 @@
     'printer_watts'
   ];
 
-  function saveData() {
+  async function saveData() {
     const data = {};
     BASE_FIELDS.forEach(id => {
       const el = document.getElementById(id);
       if (el) data[id] = el.value;
     });
-    localStorage.setItem('polylab_base', JSON.stringify(data));
+    await setDoc(doc(db, 'polylab', 'base'), data);
   }
+  window.saveData = saveData;
 
-  function loadData() {
-    const saved = localStorage.getItem('polylab_base');
-    if (saved) {
-      const data = JSON.parse(saved);
+  async function loadData() {
+    const snap = await getDoc(doc(db, 'polylab', 'base'));
+    if (snap.exists()) {
+      const data = snap.data();
       BASE_FIELDS.forEach(id => {
         const el = document.getElementById(id);
         if (el && data[id] !== undefined) el.value = data[id];
@@ -1100,7 +1117,6 @@
     const printerDeprec = getVal('printer_price') / getVal('printer_hours');
     const nozzleDeprec = getVal('nozzle_price') / getVal('nozzle_hours');
     const laborRate = getVal('salary_monthly') / getVal('work_hours');
-
     document.getElementById('cost_per_gram').textContent = fmt(isFinite(costPerGram) ? costPerGram : 0);
     document.getElementById('energy_rate').textContent = fmt(isFinite(energyRate) ? energyRate : 0);
     document.getElementById('printer_deprec').textContent = fmt(isFinite(printerDeprec) ? printerDeprec : 0);
@@ -1109,6 +1125,7 @@
     document.getElementById('loss_rate_display').textContent = getVal('loss_rate') + '%';
     document.getElementById('profit_margin_display').textContent = getVal('profit_margin') + '%';
   }
+  window.recalcBase = recalcBase;
 
   function calcPiece() {
     const costPerGram = getVal('filament_price') / getVal('filament_weight');
@@ -1118,25 +1135,21 @@
     const laborRate = getVal('salary_monthly') / getVal('work_hours');
     const lossRate = getVal('loss_rate') / 100;
     const profitMargin = getVal('profit_margin') / 100;
-
     const weight = getVal('piece_weight');
     const printHours = getVal('piece_print_hours');
     const laborHours = getVal('piece_labor_hours');
     const watts = getVal('printer_watts');
-
     const filamentCost = weight * (isFinite(costPerGram) ? costPerGram : 0);
     const energyCost = (watts / 1000) * printHours * (isFinite(energyRate) ? energyRate : 0);
     const printerCost = printHours * (isFinite(printerDeprec) ? printerDeprec : 0);
     const nozzleCost = printHours * (isFinite(nozzleDeprec) ? nozzleDeprec : 0);
     const laborCost = laborHours * (isFinite(laborRate) ? laborRate : 0);
     const packagingCost = getVal('packaging_cost');
-
     const subtotal = filamentCost + energyCost + printerCost + nozzleCost + laborCost + packagingCost;
     const losses = subtotal * lossRate;
     const totalCost = subtotal + losses;
     const profit = totalCost * profitMargin;
     const finalPrice = totalCost + profit;
-
     document.getElementById('r_filament').textContent = fmt(filamentCost);
     document.getElementById('r_energy').textContent = fmt(energyCost);
     document.getElementById('r_printer').textContent = fmt(printerCost);
@@ -1148,226 +1161,150 @@
     document.getElementById('r_total_cost').textContent = fmt(totalCost);
     document.getElementById('r_profit').textContent = fmt(profit);
     document.getElementById('r_final_price').textContent = fmt(finalPrice);
-
     return { filamentCost, energyCost, printerCost, nozzleCost, laborCost, packagingCost, subtotal, losses, totalCost, profit, finalPrice };
   }
+  window.calcPiece = calcPiece;
 
-  function saveAndRecalc() {
-    saveData();
-    recalcBase();
-    calcPiece();
-  }
+  async function saveAndRecalc() { await saveData(); recalcBase(); calcPiece(); }
+  window.saveAndRecalc = saveAndRecalc;
 
   // ==================== HISTORY ====================
-  function getHistory() {
-    return JSON.parse(localStorage.getItem('polylab_history') || '[]');
+  async function getHistory() {
+    const snap = await getDocs(collection(db, 'history'));
+    return snap.docs.map(d => ({ firestoreId: d.id, ...d.data() })).sort((a, b) => b.id - a.id);
   }
 
-  function savePiece() {
+  async function savePiece() {
     const name = document.getElementById('piece_name').value.trim() || 'Sem nome';
     const result = calcPiece();
     const entry = {
-      id: Date.now(),
-      name,
+      id: Date.now(), name,
       date: new Date().toLocaleDateString('pt-PT'),
       weight: getVal('piece_weight'),
       printHours: getVal('piece_print_hours'),
       laborHours: getVal('piece_labor_hours'),
       ...result
     };
-    const history = getHistory();
-    history.unshift(entry);
-    localStorage.setItem('polylab_history', JSON.stringify(history));
-    renderHistory();
+    await addDoc(collection(db, 'history'), entry);
+    await renderHistory();
     alert('Peça "' + name + '" salva no histórico!');
   }
+  window.savePiece = savePiece;
 
-  function deletePiece(id) {
+  async function deletePiece(firestoreId) {
     if (!confirm('Apagar esta peça do histórico?')) return;
-    const history = getHistory().filter(h => h.id !== id);
-    localStorage.setItem('polylab_history', JSON.stringify(history));
-    renderHistory();
+    await deleteDoc(doc(db, 'history', firestoreId));
+    await renderHistory();
   }
+  window.deletePiece = deletePiece;
 
-  function renderHistory() {
-    const history = getHistory();
+  async function renderHistory() {
+    const history = await getHistory();
     const container = document.getElementById('history-container');
-
-    if (!history.length) {
-      container.innerHTML = '<div class="empty-state">Nenhuma peça salva ainda.</div>';
-      return;
-    }
-
+    if (!history.length) { container.innerHTML = '<div class="empty-state">Nenhuma peça salva ainda.</div>'; return; }
     const totalCusto = history.reduce((s, h) => s + (h.totalCost || 0), 0);
     const totalPreco = history.reduce((s, h) => s + (h.finalPrice || 0), 0);
     const totalLucro = history.reduce((s, h) => s + (h.profit || 0), 0);
-
     container.innerHTML = `
-      <div style="overflow-x:auto;">
-        <table class="history-table">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Nome</th>
-              <th>Peso (g)</th>
-              <th>Tempo Imp.</th>
-              <th>Custo</th>
-              <th>Preço Venda</th>
-              <th>Lucro</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${history.map(h => `
-              <tr>
-                <td>${h.date}</td>
-                <td><strong>${h.name}</strong></td>
-                <td>${h.weight}g</td>
-                <td>${h.printHours}h</td>
-                <td style="color:var(--warning)">${fmt(h.totalCost)}</td>
-                <td style="color:var(--success)">${fmt(h.finalPrice)}</td>
-                <td style="color:var(--primary-hover)">${fmt(h.profit)}</td>
-                <td><button class="delete-btn" onclick="deletePiece(${h.id})" title="Apagar">✕</button></td>
-              </tr>
-            `).join('')}
-          </tbody>
-          <tfoot>
-            <tr class="history-total-row">
-              <td colspan="4"><strong>TOTAL (${history.length} peças)</strong></td>
-              <td style="color:var(--warning)"><strong>${fmt(totalCusto)}</strong></td>
-              <td style="color:var(--success)"><strong>${fmt(totalPreco)}</strong></td>
-              <td style="color:var(--primary-hover)"><strong>${fmt(totalLucro)}</strong></td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    `;
+      <div style="overflow-x:auto;"><table class="history-table">
+        <thead><tr><th>Data</th><th>Nome</th><th>Peso (g)</th><th>Tempo Imp.</th><th>Custo</th><th>Preço Venda</th><th>Lucro</th><th></th></tr></thead>
+        <tbody>${history.map(h => `
+          <tr>
+            <td>${h.date}</td><td><strong>${h.name}</strong></td><td>${h.weight}g</td><td>${h.printHours}h</td>
+            <td style="color:var(--warning)">${fmt(h.totalCost)}</td>
+            <td style="color:var(--success)">${fmt(h.finalPrice)}</td>
+            <td style="color:var(--primary-hover)">${fmt(h.profit)}</td>
+            <td><button class="delete-btn" onclick="deletePiece('${h.firestoreId}')">✕</button></td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr class="history-total-row">
+          <td colspan="4"><strong>TOTAL (${history.length} peças)</strong></td>
+          <td style="color:var(--warning)"><strong>${fmt(totalCusto)}</strong></td>
+          <td style="color:var(--success)"><strong>${fmt(totalPreco)}</strong></td>
+          <td style="color:var(--primary-hover)"><strong>${fmt(totalLucro)}</strong></td>
+          <td></td>
+        </tr></tfoot>
+      </table></div>`;
   }
 
   // ==================== EXPORT / IMPORT ====================
-  function exportData() {
-    const data = {
-      base: JSON.parse(localStorage.getItem('polylab_base') || '{}'),
-      history: getHistory(),
-      exportDate: new Date().toISOString()
-    };
+  async function exportData() {
+    const history = await getHistory();
+    const baseSnap = await getDoc(doc(db, 'polylab', 'base'));
+    const data = { base: baseSnap.exists() ? baseSnap.data() : {}, history, exportDate: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'polylab-precificacao-backup.json';
-    a.click();
+    const a = document.createElement('a'); a.href = url; a.download = 'polylab-backup.json'; a.click();
     URL.revokeObjectURL(url);
   }
+  window.exportData = exportData;
 
-  function importData() {
-    document.getElementById('import-file').click();
-  }
+  function importData() { document.getElementById('import-file').click(); }
+  window.importData = importData;
 
-  function handleImport(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+  async function handleImport(event) {
+    const file = event.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
       try {
         const data = JSON.parse(e.target.result);
-        if (data.base) localStorage.setItem('polylab_base', JSON.stringify(data.base));
-        if (data.history) localStorage.setItem('polylab_history', JSON.stringify(data.history));
-        loadData();
-        recalcBase();
-        calcPiece();
-        renderHistory();
+        if (data.base) await setDoc(doc(db, 'polylab', 'base'), data.base);
+        if (data.history) for (const h of data.history) { const { firestoreId, ...entry } = h; await addDoc(collection(db, 'history'), entry); }
+        await loadData(); recalcBase(); calcPiece(); await renderHistory();
         alert('Dados importados com sucesso!');
-      } catch (err) {
-        alert('Erro ao importar: arquivo inválido.');
-      }
+      } catch (err) { alert('Erro ao importar: arquivo inválido.'); }
     };
-    reader.readAsText(file);
-    event.target.value = '';
+    reader.readAsText(file); event.target.value = '';
   }
+  window.handleImport = handleImport;
 
   // ==================== ORDERS ====================
   let currentOriginFilter = 'all';
   let currentStatusFilter = 'all';
 
-  function getOrders() {
-    return JSON.parse(localStorage.getItem('polylab_orders') || '[]');
+  async function getOrders() {
+    const snap = await getDocs(collection(db, 'orders'));
+    return snap.docs.map(d => ({ firestoreId: d.id, ...d.data() })).sort((a, b) => b.id - a.id);
   }
 
-  function saveOrder() {
+  async function saveOrder() {
     const client = document.getElementById('order_client').value.trim();
-    const origin = document.getElementById('order_origin').value;
     const product = document.getElementById('order_product').value.trim();
-    const status = document.getElementById('order_status').value;
-    const date = document.getElementById('order_date').value;
-    const delivery = document.getElementById('order_delivery').value;
-    const price = parseFloat(document.getElementById('order_price').value) || 0;
-    const cost = parseFloat(document.getElementById('order_cost').value) || 0;
-    const notes = document.getElementById('order_notes').value.trim();
-
-    if (!client || !product) {
-      alert('Cliente e Produto são obrigatórios!');
-      return;
-    }
-
+    if (!client || !product) { alert('Cliente e Produto são obrigatórios!'); return; }
     const order = {
-      id: Date.now(),
-      client,
-      origin,
+      id: Date.now(), client,
+      origin: document.getElementById('order_origin').value,
       product,
-      status,
-      date: date || new Date().toISOString().split('T')[0],
-      delivery,
-      price,
-      cost,
-      notes,
+      status: document.getElementById('order_status').value,
+      date: document.getElementById('order_date').value || new Date().toISOString().split('T')[0],
+      delivery: document.getElementById('order_delivery').value,
+      price: parseFloat(document.getElementById('order_price').value) || 0,
+      notes: document.getElementById('order_notes').value.trim(),
       createdAt: new Date().toISOString()
     };
-
-    const orders = getOrders();
-    orders.unshift(order);
-    localStorage.setItem('polylab_orders', JSON.stringify(orders));
-
-    document.getElementById('order_client').value = '';
-    document.getElementById('order_product').value = '';
-    document.getElementById('order_date').value = '';
-    document.getElementById('order_delivery').value = '';
-    document.getElementById('order_price').value = '';
-    document.getElementById('order_cost').value = '';
-    document.getElementById('order_notes').value = '';
-
-    renderOrders();
-    updateOrderStats();
+    await addDoc(collection(db, 'orders'), order);
+    ['order_client','order_product','order_date','order_delivery','order_price','order_notes'].forEach(id => document.getElementById(id).value = '');
+    await renderOrders(); await updateOrderStats();
     alert('Encomenda adicionada com sucesso!');
   }
+  window.saveOrder = saveOrder;
 
-  function deleteOrder(id) {
+  async function deleteOrder(firestoreId) {
     if (!confirm('Apagar esta encomenda?')) return;
-    const orders = getOrders().filter(o => o.id !== id);
-    localStorage.setItem('polylab_orders', JSON.stringify(orders));
-    renderOrders();
-    updateOrderStats();
+    await deleteDoc(doc(db, 'orders', firestoreId));
+    await renderOrders(); await updateOrderStats();
   }
+  window.deleteOrder = deleteOrder;
 
-  function updateOrderStats() {
-    const orders = getOrders();
-    const total = orders.length;
-    const pending = orders.filter(o => o.status === 'Pendente').length;
-    const production = orders.filter(o => o.status === 'Em Produção').length;
-    const completed = orders.filter(o => o.status === 'Concluído').length;
-
-    document.getElementById('stat-total').textContent = total;
-    document.getElementById('stat-pending').textContent = pending;
-    document.getElementById('stat-production').textContent = production;
-    document.getElementById('stat-completed').textContent = completed;
-
-    // Caixa da empresa — apenas faturado real
+  async function updateOrderStats() {
+    const orders = await getOrders();
+    document.getElementById('stat-total').textContent = orders.length;
+    document.getElementById('stat-pending').textContent = orders.filter(o => o.status === 'Pendente').length;
+    document.getElementById('stat-production').textContent = orders.filter(o => o.status === 'Em Produção').length;
+    document.getElementById('stat-completed').textContent = orders.filter(o => o.status === 'Concluído').length;
     const withPrice = orders.filter(o => o.price > 0);
     const totalFaturado = withPrice.reduce((s, o) => s + o.price, 0);
-    const entregues = orders.filter(o => o.status === 'Entregue' && o.price > 0);
-    const totalRecebido = entregues.reduce((s, o) => s + o.price, 0);
-
+    const totalRecebido = orders.filter(o => o.status === 'Entregue' && o.price > 0).reduce((s, o) => s + o.price, 0);
     document.getElementById('caixa-qtd').textContent = withPrice.length;
     document.getElementById('caixa-faturado').textContent = fmt(totalFaturado);
     document.getElementById('caixa-recebido').textContent = fmt(totalRecebido);
@@ -1375,100 +1312,60 @@
   }
 
   function getStatusClass(status) {
-    const map = {
-      'Pendente': 'status-pending',
-      'Em Produção': 'status-production',
-      'Concluído': 'status-completed',
-      'Entregue': 'status-delivered'
-    };
-    return map[status] || 'status-pending';
+    return { 'Pendente':'status-pending','Em Produção':'status-production','Concluído':'status-completed','Entregue':'status-delivered' }[status] || 'status-pending';
   }
 
-  function filterByOrigin(origin) {
+  async function filterByOrigin(origin) {
     currentOriginFilter = origin;
-    document.querySelectorAll('#origin-filters .chip').forEach(chip => {
-      chip.classList.toggle('active', chip.dataset.origin === origin);
-    });
-    renderOrders();
+    document.querySelectorAll('#origin-filters .chip').forEach(c => c.classList.toggle('active', c.dataset.origin === origin));
+    await renderOrders();
   }
+  window.filterByOrigin = filterByOrigin;
 
-  function filterByStatus(status) {
+  async function filterByStatus(status) {
     currentStatusFilter = status;
-    document.querySelectorAll('#status-filters .chip').forEach(chip => {
-      chip.classList.toggle('active', chip.dataset.status === status);
-    });
-    renderOrders();
+    document.querySelectorAll('#status-filters .chip').forEach(c => c.classList.toggle('active', c.dataset.status === status));
+    await renderOrders();
   }
+  window.filterByStatus = filterByStatus;
 
-  function renderOrders() {
-    let orders = getOrders();
-
-    if (currentOriginFilter !== 'all') {
-      orders = orders.filter(o => o.origin === currentOriginFilter);
-    }
-    if (currentStatusFilter !== 'all') {
-      orders = orders.filter(o => o.status === currentStatusFilter);
-    }
-
+  async function renderOrders() {
+    let orders = await getOrders();
+    if (currentOriginFilter !== 'all') orders = orders.filter(o => o.origin === currentOriginFilter);
+    if (currentStatusFilter !== 'all') orders = orders.filter(o => o.status === currentStatusFilter);
     const container = document.getElementById('orders-container');
-
-    if (!orders.length) {
-      container.innerHTML = '<div class="empty-state">Nenhuma encomenda encontrada.</div>';
-      return;
-    }
-
+    if (!orders.length) { container.innerHTML = '<div class="empty-state">Nenhuma encomenda encontrada.</div>'; return; }
     const totalFaturado = orders.reduce((s, o) => s + (o.price || 0), 0);
-
     container.innerHTML = `
-      <div style="overflow-x:auto;">
-        <table class="history-table">
-          <thead>
-            <tr>
-              <th>Data</th>
-              <th>Cliente</th>
-              <th>Produto</th>
-              <th>Origem</th>
-              <th>Status</th>
-              <th>Entrega</th>
-              <th>Preço</th>
-              <th>Notas</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${orders.map(o => `
-              <tr>
-                <td>${o.date}</td>
-                <td><strong>${o.client}</strong></td>
-                <td>${o.product}</td>
-                <td>${o.origin}</td>
-                <td><span class="status-badge ${getStatusClass(o.status)}">${o.status}</span></td>
-                <td>${o.delivery || '-'}</td>
-                <td style="color:var(--success)">${fmt(o.price)}</td>
-                <td style="font-size:11px; color:var(--text-muted)">${o.notes || '-'}</td>
-                <td style="display:flex; gap:6px; align-items:center;">
-                  <button class="btn-edit" onclick="openEditModal(${o.id})" title="Editar">✏️</button>
-                  <button class="delete-btn" onclick="deleteOrder(${o.id})" title="Apagar">✕</button>
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-          <tfoot>
-            <tr class="history-total-row">
-              <td colspan="6"><strong>TOTAL (${orders.length} encomendas)</strong></td>
-              <td style="color:var(--success)"><strong>${fmt(totalFaturado)}</strong></td>
-              <td colspan="2"></td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    `;
+      <div style="overflow-x:auto;"><table class="history-table">
+        <thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th>Origem</th><th>Status</th><th>Entrega</th><th>Preço</th><th>Notas</th><th></th></tr></thead>
+        <tbody>${orders.map(o => `
+          <tr>
+            <td>${o.date}</td><td><strong>${o.client}</strong></td><td>${o.product}</td><td>${o.origin}</td>
+            <td><span class="status-badge ${getStatusClass(o.status)}">${o.status}</span></td>
+            <td>${o.delivery || '-'}</td>
+            <td style="color:var(--success)">${fmt(o.price)}</td>
+            <td style="font-size:11px; color:var(--text-muted)">${o.notes || '-'}</td>
+            <td style="display:flex; gap:6px; align-items:center;">
+              <button class="btn-edit" onclick="openEditModal('${o.firestoreId}')">✏️</button>
+              <button class="delete-btn" onclick="deleteOrder('${o.firestoreId}')">✕</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+        <tfoot><tr class="history-total-row">
+          <td colspan="6"><strong>TOTAL (${orders.length} encomendas)</strong></td>
+          <td style="color:var(--success)"><strong>${fmt(totalFaturado)}</strong></td>
+          <td colspan="2"></td>
+        </tr></tfoot>
+      </table></div>`;
   }
+
   // ==================== EDITAR ENCOMENDA ====================
-  function openEditModal(id) {
-    const order = getOrders().find(o => o.id === id);
+  async function openEditModal(firestoreId) {
+    const orders = await getOrders();
+    const order = orders.find(o => o.firestoreId === firestoreId);
     if (!order) return;
-    document.getElementById('edit_id').value = order.id;
+    document.getElementById('edit_id').value = firestoreId;
     document.getElementById('edit_client').value = order.client || '';
     document.getElementById('edit_origin').value = order.origin || 'WhatsApp';
     document.getElementById('edit_product').value = order.product || '';
@@ -1479,18 +1376,14 @@
     document.getElementById('edit_notes').value = order.notes || '';
     document.getElementById('edit-modal').classList.add('open');
   }
+  window.openEditModal = openEditModal;
 
-  function closeEditModal() {
-    document.getElementById('edit-modal').classList.remove('open');
-  }
+  function closeEditModal() { document.getElementById('edit-modal').classList.remove('open'); }
+  window.closeEditModal = closeEditModal;
 
-  function saveEditOrder() {
-    const id = parseInt(document.getElementById('edit_id').value);
-    const orders = getOrders();
-    const idx = orders.findIndex(o => o.id === id);
-    if (idx === -1) return;
-    orders[idx] = {
-      ...orders[idx],
+  async function saveEditOrder() {
+    const firestoreId = document.getElementById('edit_id').value;
+    await updateDoc(doc(db, 'orders', firestoreId), {
       client:   document.getElementById('edit_client').value.trim(),
       origin:   document.getElementById('edit_origin').value,
       product:  document.getElementById('edit_product').value.trim(),
@@ -1499,17 +1392,17 @@
       delivery: document.getElementById('edit_delivery').value,
       price:    parseFloat(document.getElementById('edit_price').value) || 0,
       notes:    document.getElementById('edit_notes').value.trim(),
-    };
-    localStorage.setItem('polylab_orders', JSON.stringify(orders));
+    });
     closeEditModal();
-    renderOrders();
-    updateOrderStats();
+    await renderOrders();
+    await updateOrderStats();
   }
+  window.saveEditOrder = saveEditOrder;
 
-  // Fechar modal ao clicar fora
   document.getElementById('edit-modal').addEventListener('click', function(e) {
     if (e.target === this) closeEditModal();
   });
+
 </script>
 
 </body>
