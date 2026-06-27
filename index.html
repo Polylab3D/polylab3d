@@ -477,7 +477,7 @@
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.75);
       z-index: 1000;
       align-items: center;
       justify-content: center;
@@ -490,7 +490,7 @@
       border-radius: var(--radius);
       padding: 28px;
       width: 100%;
-      max-width: 560px;
+      max-width: 580px;
       max-height: 90vh;
       overflow-y: auto;
     }
@@ -511,7 +511,7 @@
       border: 1px solid var(--border);
       color: var(--text-muted);
       border-radius: 6px;
-      padding: 4px 10px;
+      padding: 3px 8px;
       font-size: 13px;
       cursor: pointer;
       transition: all 0.2s;
@@ -823,7 +823,7 @@
       <!-- CAIXA DA EMPRESA -->
       <div class="card">
         <div class="card-title">💰 Caixa da Empresa</div>
-        <div class="card-desc">Resumo financeiro de todas as encomendas registadas (apenas encomendas com preço definido).</div>
+        <div class="card-desc">Resumo financeiro real das encomendas — sem estimativas.</div>
         <div class="caixa-grid">
           <div class="caixa-item">
             <div class="caixa-label">Encomendas</div>
@@ -834,15 +834,15 @@
             <div class="caixa-value caixa-faturado" id="caixa-faturado">€ 0.00</div>
           </div>
           <div class="caixa-item">
-            <div class="caixa-label">Custo Estimado</div>
-            <div class="caixa-value caixa-custo" id="caixa-custo">€ 0.00</div>
+            <div class="caixa-label">Já Recebido</div>
+            <div class="caixa-value caixa-lucro" id="caixa-recebido">€ 0.00</div>
           </div>
           <div class="caixa-item">
-            <div class="caixa-label">Lucro Estimado</div>
-            <div class="caixa-value caixa-lucro" id="caixa-lucro">€ 0.00</div>
+            <div class="caixa-label">Por Receber</div>
+            <div class="caixa-value caixa-custo" id="caixa-pendente">€ 0.00</div>
           </div>
         </div>
-        <p style="font-size:11px; color:var(--text-muted); margin-top:12px;">* Custo estimado calculado com base no custo mínimo definido (€14 por padrão). Ajusta em <strong>Base de Cálculo</strong>.</p>
+        <p style="font-size:11px; color:var(--text-muted); margin-top:12px;">* "Já Recebido" conta apenas encomendas com status <strong>Entregue</strong>.</p>
       </div>
 
       <!-- NOVA ENCOMENDA -->
@@ -954,7 +954,7 @@
     <div class="form-grid">
       <div class="form-group">
         <label>Cliente</label>
-        <input type="text" id="edit_client" placeholder="Nome do cliente">
+        <input type="text" id="edit_client">
       </div>
       <div class="form-group">
         <label>Origem</label>
@@ -969,7 +969,7 @@
       </div>
       <div class="form-group">
         <label>Produto</label>
-        <input type="text" id="edit_product" placeholder="Nome do produto">
+        <input type="text" id="edit_product">
       </div>
       <div class="form-group">
         <label>Status</label>
@@ -990,11 +990,11 @@
       </div>
       <div class="form-group">
         <label>Preço de Venda (€)</label>
-        <input type="number" id="edit_price" step="0.01" placeholder="0.00">
+        <input type="number" id="edit_price" step="0.01">
       </div>
       <div class="form-group">
         <label>Notas</label>
-        <input type="text" id="edit_notes" placeholder="Observações">
+        <input type="text" id="edit_notes">
       </div>
     </div>
     <div class="modal-actions">
@@ -1362,17 +1362,16 @@
     document.getElementById('stat-production').textContent = production;
     document.getElementById('stat-completed').textContent = completed;
 
-    // Caixa da empresa — soma de todas as encomendas com preço
+    // Caixa da empresa — apenas faturado real
     const withPrice = orders.filter(o => o.price > 0);
     const totalFaturado = withPrice.reduce((s, o) => s + o.price, 0);
-    const totalCusto = withPrice.reduce((s, o) => s + (o.cost > 0 ? o.cost : 14), 0);
-    const totalLucro = totalFaturado - totalCusto;
+    const entregues = orders.filter(o => o.status === 'Entregue' && o.price > 0);
+    const totalRecebido = entregues.reduce((s, o) => s + o.price, 0);
 
     document.getElementById('caixa-qtd').textContent = withPrice.length;
     document.getElementById('caixa-faturado').textContent = fmt(totalFaturado);
-    document.getElementById('caixa-custo').textContent = fmt(totalCusto);
-    document.getElementById('caixa-lucro').textContent = fmt(totalLucro);
-    document.getElementById('caixa-lucro').style.color = totalLucro >= 0 ? 'var(--primary-hover)' : 'var(--primary)';
+    document.getElementById('caixa-recebido').textContent = fmt(totalRecebido);
+    document.getElementById('caixa-pendente').textContent = fmt(totalFaturado - totalRecebido);
   }
 
   function getStatusClass(status) {
@@ -1447,7 +1446,7 @@
                 <td>${o.delivery || '-'}</td>
                 <td style="color:var(--success)">${fmt(o.price)}</td>
                 <td style="font-size:11px; color:var(--text-muted)">${o.notes || '-'}</td>
-                <td style="display:flex; gap:6px;">
+                <td style="display:flex; gap:6px; align-items:center;">
                   <button class="btn-edit" onclick="openEditModal(${o.id})" title="Editar">✏️</button>
                   <button class="delete-btn" onclick="deleteOrder(${o.id})" title="Apagar">✕</button>
                 </td>
@@ -1465,12 +1464,10 @@
       </div>
     `;
   }
-
   // ==================== EDITAR ENCOMENDA ====================
   function openEditModal(id) {
     const order = getOrders().find(o => o.id === id);
     if (!order) return;
-
     document.getElementById('edit_id').value = order.id;
     document.getElementById('edit_client').value = order.client || '';
     document.getElementById('edit_origin').value = order.origin || 'WhatsApp';
@@ -1480,7 +1477,6 @@
     document.getElementById('edit_delivery').value = order.delivery || '';
     document.getElementById('edit_price').value = order.price || '';
     document.getElementById('edit_notes').value = order.notes || '';
-
     document.getElementById('edit-modal').classList.add('open');
   }
 
@@ -1493,19 +1489,17 @@
     const orders = getOrders();
     const idx = orders.findIndex(o => o.id === id);
     if (idx === -1) return;
-
     orders[idx] = {
       ...orders[idx],
-      client: document.getElementById('edit_client').value.trim(),
-      origin: document.getElementById('edit_origin').value,
-      product: document.getElementById('edit_product').value.trim(),
-      status: document.getElementById('edit_status').value,
-      date: document.getElementById('edit_date').value,
+      client:   document.getElementById('edit_client').value.trim(),
+      origin:   document.getElementById('edit_origin').value,
+      product:  document.getElementById('edit_product').value.trim(),
+      status:   document.getElementById('edit_status').value,
+      date:     document.getElementById('edit_date').value,
       delivery: document.getElementById('edit_delivery').value,
-      price: parseFloat(document.getElementById('edit_price').value) || 0,
-      notes: document.getElementById('edit_notes').value.trim(),
+      price:    parseFloat(document.getElementById('edit_price').value) || 0,
+      notes:    document.getElementById('edit_notes').value.trim(),
     };
-
     localStorage.setItem('polylab_orders', JSON.stringify(orders));
     closeEditModal();
     renderOrders();
